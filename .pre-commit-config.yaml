@@ -88,12 +88,10 @@ repos:
   - id: onto-latest
     name: Ontologies latest validator
     entry: python -m dati_playground validate --validate-versioned-directory=true
-    files: '^assets\/ontologies\/.*\.ttl'
-    exclude: >-
-      ^.*(-align|-DBGT|example).*\.ttl$
+    files: '^assets/ontologies/.*'
     language: python
     types:
-    - file
+    - directory
     additional_dependencies:
     - git+https://github.com/ioggstream/json-semantic-playground
   - id: vocab-pyshacl

@@ -1,7 +1,9 @@
 import difflib
 import logging
-from distutils.version import LooseVersion
+
+from filecmp import cmpfiles
 from functools import lru_cache
+from packaging.version import Version
 from pathlib import Path
 from typing import List
 
@@ -52,34 +54,70 @@ def validate_shacl(file: str):
         raise
 
 
-def validate_directory(fpath: Path, errors: List):
-    if fpath.parent.name != "latest":
-        return
+def validate_directory(ontology_path: Path, errors: List):
     folders = [
         x.name
-        for x in fpath.parent.parent.glob("*/")
-        if x.name != "latest" and x.is_dir() and x.name[:2] != "v."
+        for x in ontology_path.glob("*/")
+        if x.name != "latest" and x.is_dir()
     ]
     log.debug("Identified folders: %r", (folders,))
-    if not folders:
-        log.info(f"No versioned directories found for {fpath}")
-        return
-    last_version_dirname = sorted(LooseVersion(x) for x in folders)[-1]
-    log.debug("Version: %r", (last_version_dirname,))
-    cpath = fpath.parent.parent / last_version_dirname.vstring / fpath.name
 
-    with open(cpath) as f_latest, open(fpath) as f_version:
-        diffs = []
-        diff = difflib.unified_diff(
-            f_latest.readlines(),
-            f_version.readlines(),
-            fromfile=cpath.as_posix(),
-            tofile=fpath.as_posix(),
+    if not folders:
+        errors.append(f"No versioned directories found for {ontology_path}")
+        return
+
+    versions = [(Version(x), x) for x in folders]
+    last_version = sorted(versions, key=lambda v: v[0])[-1][1]
+
+    log.debug("Latest version: %r", (last_version,))
+
+    left_dir = ontology_path / "latest"
+    right_dir = ontology_path / last_version
+
+    if not left_dir.exists():
+        errors.append(f"ERROR: can't find {left_dir}")
+        return
+
+    assert right_dir.exists()
+
+    left = set(f.name for f in left_dir.glob("*"))
+    right = set(f.name for f in right_dir.glob("*"))
+
+    only_latest = left - right
+    if only_latest:
+        errors.append(f"Only in latest/: {', '.join(str(path) for path in only_latest)}")
+
+    only_version_dir = right - left
+    if only_version_dir:
+        errors.append(
+            f"Only in {last_version}/: {', '.join(str(path) for path in only_version_dir)}"
         )
-        diffs = "".join(diff)
-        if diffs:
-            errstr = f"ERROR: files are different: {cpath} {fpath}"
-            errors.append(errstr)
-            log.error(diffs)
-        else:
-            log.info(f"File {cpath} is up to date with {fpath}")
+
+    if right & left:
+        _, mismatch, errs = cmpfiles(
+            left_dir,
+            right_dir,
+            right & left,
+            shallow=False
+        )
+
+        for fname in mismatch:
+            diffs = []
+            left_path = left_dir / fname
+            right_path = right_dir / fname
+
+            with open(left_path) as f_latest, open(right_path) as f_version:
+                diff = difflib.unified_diff(
+                    f_latest.readlines(),
+                    f_version.readlines(),
+                    fromfile=left_path.as_posix(),
+                    tofile=right_path.as_posix(),
+                )
+                diffs = "".join(diff)
+                if diffs:
+                    errors.append(f"ERROR: files are different: {left_path} {right_path}")
+                    log.error(diffs)
+        if errs:
+            errors.append(
+                f"ERROR: couldn't check these files: {', '.join(f for f in errs)} (permission issues?)"
+            )

@@ -45,13 +45,11 @@
       -aligns, -DBGT, example.
 
     entry: python -m dati_playground validate --validate-versioned-directory=true
-    exclude: >-
-      .*(-aligns|-DBGT|example).*
     files: >-
-      ^assets/.*\.ttl
+      ^assets/ontologies/.*
     language: python
     types:
-    - file
+    - directory
 
 -   id: validate-csv
     name: Validate csv layout
